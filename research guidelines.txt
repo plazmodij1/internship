@@ -1,0 +1,4 @@
+fokusiraj se na Q1 logicno, odradi sve, zatim (za Q2) pogledaj monitorng i koje template imaju source-of-truth-ovi
+
+DATA MODELING segment
+Pogledaj kako dodat (flag) za monitoring, da kaze da je server dodan u monitoring. Taj flag sluzi za birat oce li server bit dodan u monitoring ili ne.
