@@ -1,0 +1,10 @@
+# Auto-detect text files and convert to native line endings on checkout
+* text=auto
+
+# Force bash scripts to always keep LF line endings (required for Linux/Docker)
+*.sh text eol=lf
+
+# Force other Docker-related files to LF to avoid container parsing issues
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

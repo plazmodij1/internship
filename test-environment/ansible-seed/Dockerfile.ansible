@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+# dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git openssh-client curl jq \
+ && rm -rf /var/lib/apt/lists/*
+
+# Instaliraj Ansible i libove za netbox collection
+RUN pip install --no-cache-dir "ansible==9.*" pynetbox requests
+
+# postavi collections u shared path
+# (COPY the requirements file into the image so builds are reproducible)
+COPY ansible/collections.yml /tmp/collections.yml
+RUN ansible-galaxy collection install -r /tmp/collections.yml -p /usr/share/ansible/collections
+
+# Default working directory
+WORKDIR /work
+
+# Pomoćni default env
+ENV ANSIBLE_STDOUT_CALLBACK=debug \
+    ANSIBLE_DEPRECATION_WARNINGS=False \
+    ANSIBLE_COLLECTIONS_PATHS=/usr/share/ansible/collections

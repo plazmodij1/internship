@@ -1,0 +1,25 @@
+services:
+  
+
+  ansible-seed:
+    build:
+      context: ./ansible-seed
+      dockerfile: Dockerfile.ansible
+    working_dir: /work
+    env_file:
+      - ./ansible-seed/.env
+    volumes:
+      - ./ansible-seed/ansible:/work:ro
+    command: ["ansible-playbook", "/work/seed-netbox.yml"]
+
+networks:
+  public:
+    driver: bridge
+  private:
+    driver: bridge
+    internal: true
+
+volumes:
+  db_data:
+  kuma-data:
+  prometheus-data:

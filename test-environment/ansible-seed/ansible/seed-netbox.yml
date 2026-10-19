@@ -1,0 +1,119 @@
+---
+- name: Seed NetBox with demo devices for Icinga
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    nb_url: "{{ lookup('env','NETBOX_API') | default('http://localhost:8000', true) }}"
+    nb_token: "{{ lookup('env','NETBOX_TOKEN') }}"
+    site_name: "DC1"
+    role_name: "Server"
+    mf_name: "Generic"
+    dtype_model: "small"
+    devices:
+      - { name: "web01", ip: "10.10.0.10/24" }
+      - { name: "db01",  ip: "10.10.0.11/24" }
+      - { name: "gw01",  ip: "10.10.0.1/24"  }
+
+  pre_tasks:
+    - name: Ensure site exists
+      netbox.netbox.netbox_site:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          name: "{{ site_name }}"
+          slug: "{{ site_name | lower | regex_replace('[^a-z0-9]+','-') }}"
+        state: present
+
+    - name: Ensure device role exists
+      netbox.netbox.netbox_device_role:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          name: "{{ role_name }}"
+          slug: "{{ role_name | lower | regex_replace('[^a-z0-9]+','-') }}"
+          color: "c0c0c0"
+        state: present
+
+    - name: Ensure manufacturer exists
+      netbox.netbox.netbox_manufacturer:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          name: "{{ mf_name }}"
+          slug: "{{ mf_name | lower | regex_replace('[^a-z0-9]+','-') }}"
+        state: present
+
+    - name: Ensure device type exists
+      netbox.netbox.netbox_device_type:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          model: "{{ dtype_model }}"
+          slug: "{{ dtype_model | lower | regex_replace('[^a-z0-9]+','-') }}"
+          manufacturer: "{{ mf_name }}"
+        state: present
+
+    - name: Ensure tag 'monitor' exists
+      netbox.netbox.netbox_tag:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          name: "monitor"
+          slug: "monitor"
+          color: "c0c0c0"   # any valid NetBox color; optional
+        state: present
+
+  tasks:
+    - name: Create devices
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          name: "{{ item.name }}"
+          site: "{{ site_name }}"
+          device_role: "{{ role_name }}"
+          device_type: "{{ dtype_model }}"
+          status: "active"
+          tags: ["monitor"]
+        state: present
+      loop: "{{ devices }}"
+
+    - name: Ensure management interface exists
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          device: "{{ item.name }}"
+          name: "{{ mgmt_ifname | default('mgmt0') }}"
+          type: "virtual"     # or '1000base-t', etc.
+          enabled: true
+        state: present
+      loop: "{{ devices }}"
+      loop_control:
+        label: "{{ item.name }}:{{ mgmt_ifname | default('mgmt0') }}"
+
+    - name: Create and assign IPs to mgmt interface
+      netbox.netbox.netbox_ip_address:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          address: "{{ item.ip }}"
+          status: "active"
+          assigned_object:
+            device: "{{ item.name }}"
+            name: "{{ mgmt_ifname | default('mgmt0') }}"
+        state: present
+      loop: "{{ devices }}"
+      register: ip_results
+
+    - name: Set primary_ip4 on devices
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          name: "{{ item.name }}"
+          primary_ip4: "{{ item.ip }}"
+        state: present
+      loop: "{{ devices }}"
