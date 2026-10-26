@@ -2,7 +2,7 @@ services:
   netbox:
     ports:
       - "8000:8080"
-    # healthcheck:
+    healthcheck:
       # Time for which the health check can fail after the container is started.
       # This depends mostly on the performance of your database. On the first start,
       # when all tables need to be created the start_period should be higher than on

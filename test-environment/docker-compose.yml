@@ -1,25 +1,57 @@
+include:
+  - /icinga/docker-compose.yml
+  - path:
+    - /netbox/docker-compose.yml
+    - /netbox/docker-compose.override.yml
 services:
-  
-
   ansible-seed:
     build:
-      context: ./ansible-seed
+      context: ./ansible
       dockerfile: Dockerfile.ansible
     working_dir: /work
     env_file:
-      - ./ansible-seed/.env
+      - ./ansible/.env
     volumes:
-      - ./ansible-seed/ansible:/work:ro
-    command: ["ansible-playbook", "/work/seed-netbox.yml"]
+      - ./ansible/netbox-data:/work:ro
+    command: ["ansible-playbook", "/work/seed-netbox.yml", "-vvv"]
+    networks:
+      - public
+  ansible-automation:
+    depends_on:
+      ansible-seed:
+        condition: service_completed_successfully
+    build:
+      context: ./ansible/
+      dockerfile: Dockerfile.ansible
+    working_dir: /work
+    env_file:
+      - ./ansible/.env
+    volumes:
+      - ./ansible/synchronization:/work:ro
+    command: [] 
+    networks:
+      - public
+  https-proxy:
+    #make sure proxy boots up after netbox and icinga are done booting up
+    image: nginx:latest
+    ports:
+      - 443:443
+    volumes:
+      - ./nginx/nginx-https.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl-cert:/etc/nginx/ssl:ro
+    networks:
+      public:
+        aliases:
+          - netbox.local
+          - icinga.local
+      
+  nginx-device:
+    container_name: monitor-device
+    image: nginx:latest
+    networks:
+      - public
 
 networks:
   public:
+    name: public
     driver: bridge
-  private:
-    driver: bridge
-    internal: true
-
-volumes:
-  db_data:
-  kuma-data:
-  prometheus-data:

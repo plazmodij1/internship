@@ -12,13 +12,23 @@
     mf_name: "Generic"
     dtype_model: "small"
     devices:
-      - { name: "web01", ip: "10.10.0.10/24" }
-      - { name: "db01",  ip: "10.10.0.11/24" }
-      - { name: "gw01",  ip: "10.10.0.1/24"  }
+      - { name: "custom-device", ip: "172.18.0.2/24" }
+    cert: "no"
 
   pre_tasks:
+    - name: Wait for NetBox API to become available
+      ansible.builtin.uri:
+        url: "{{nb_url}}/api/"
+        validate_certs: "{{cert | bool }}"
+        status_code: 403
+      register: result
+      until: result.status == 403
+      retries: 30
+      delay: 10
+
     - name: Ensure site exists
       netbox.netbox.netbox_site:
+        validate_certs: "{{cert | bool }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -28,6 +38,7 @@
 
     - name: Ensure device role exists
       netbox.netbox.netbox_device_role:
+        validate_certs: "{{cert | bool }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -38,6 +49,7 @@
 
     - name: Ensure manufacturer exists
       netbox.netbox.netbox_manufacturer:
+        validate_certs: "{{cert | bool }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -47,6 +59,7 @@
 
     - name: Ensure device type exists
       netbox.netbox.netbox_device_type:
+        validate_certs: "{{cert | bool }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -55,19 +68,20 @@
           manufacturer: "{{ mf_name }}"
         state: present
 
-    - name: Ensure tag 'monitor' exists
-      netbox.netbox.netbox_tag:
+    - name: Ensure custom field 'monitor' exists
+      netbox.netbox.netbox_custom_field:
+        validate_certs: "{{cert | bool }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
           name: "monitor"
-          slug: "monitor"
-          color: "c0c0c0"   # any valid NetBox color; optional
+          type: boolean
         state: present
 
   tasks:
     - name: Create devices
       netbox.netbox.netbox_device:
+        validate_certs: "{{cert | bool }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -76,12 +90,14 @@
           device_role: "{{ role_name }}"
           device_type: "{{ dtype_model }}"
           status: "active"
-          tags: ["monitor"]
+          custom_fields:
+            {monitor: True}
         state: present
       loop: "{{ devices }}"
 
     - name: Ensure management interface exists
       netbox.netbox.netbox_device_interface:
+        validate_certs: "{{cert | bool }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -96,6 +112,7 @@
 
     - name: Create and assign IPs to mgmt interface
       netbox.netbox.netbox_ip_address:
+        validate_certs: "{{cert | bool }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -110,6 +127,7 @@
 
     - name: Set primary_ip4 on devices
       netbox.netbox.netbox_device:
+        validate_certs: "{{cert | bool }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
