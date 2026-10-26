@@ -1,8 +1,8 @@
 include:
-  - /icinga/docker-compose.yml
+  - ./icinga/docker-compose.yml
   - path:
-    - /netbox/docker-compose.yml
-    - /netbox/docker-compose.override.yml
+    - ./netbox/docker-compose.yml
+    - ./netbox/docker-compose.override.yml
 services:
   ansible-seed:
     build:

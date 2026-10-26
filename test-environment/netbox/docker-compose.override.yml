@@ -1,0 +1,7 @@
+services:
+  netbox:
+    healthcheck:
+      start_period: 230s
+    networks:
+      - default
+      - public
