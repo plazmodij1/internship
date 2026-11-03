@@ -17,9 +17,6 @@ services:
     networks:
       - public
   ansible-automation:
-    depends_on:
-      ansible-seed:
-        condition: service_completed_successfully
     build:
       context: ./ansible/
       dockerfile: Dockerfile.ansible
@@ -28,7 +25,7 @@ services:
       - ./ansible/.env
     volumes:
       - ./ansible/synchronization:/work:ro
-    command: [] 
+    command: ["ansible-playbook", "/work/nb-to-icinga-api.yml"] 
     networks:
       - public
   https-proxy:

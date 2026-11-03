@@ -13,13 +13,13 @@
     dtype_model: "small"
     devices:
       - { name: "custom-device", ip: "172.18.0.2/24" }
-    cert: "no"
+    netbox_validate_ssl: "{{ lookup('env', 'NETBOX_VALIDATE_SSL') | bool}}"
 
   pre_tasks:
     - name: Wait for NetBox API to become available
       ansible.builtin.uri:
         url: "{{nb_url}}/api/"
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         status_code: 403
       register: result
       until: result.status == 403
@@ -28,7 +28,7 @@
 
     - name: Ensure site exists
       netbox.netbox.netbox_site:
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -38,7 +38,7 @@
 
     - name: Ensure device role exists
       netbox.netbox.netbox_device_role:
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -49,7 +49,7 @@
 
     - name: Ensure manufacturer exists
       netbox.netbox.netbox_manufacturer:
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -59,7 +59,7 @@
 
     - name: Ensure device type exists
       netbox.netbox.netbox_device_type:
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -70,10 +70,12 @@
 
     - name: Ensure custom field 'monitor' exists
       netbox.netbox.netbox_custom_field:
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
+          object_types:
+            - dcim.device
           name: "monitor"
           type: boolean
         state: present
@@ -81,7 +83,7 @@
   tasks:
     - name: Create devices
       netbox.netbox.netbox_device:
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -97,7 +99,7 @@
 
     - name: Ensure management interface exists
       netbox.netbox.netbox_device_interface:
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -112,7 +114,7 @@
 
     - name: Create and assign IPs to mgmt interface
       netbox.netbox.netbox_ip_address:
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -127,7 +129,7 @@
 
     - name: Set primary_ip4 on devices
       netbox.netbox.netbox_device:
-        validate_certs: "{{cert | bool }}"
+        validate_certs: netbox_validate_ssl
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:

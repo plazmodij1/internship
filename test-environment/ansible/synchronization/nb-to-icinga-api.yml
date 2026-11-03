@@ -7,9 +7,8 @@
   vars:
     # NetBox
     nb_url: "{{ lookup('env','NETBOX_API') | default('http://localhost:8000', true) }}"
-    nb_token: "{{ lookup('env','NETBOX_TOKEN') }}"
-    tag_filter: "monitor"              # or site=DC1, role=Server, etc.
-
+    nb_token: "{{ lookup('env','NETBOX_TOKEN') }}"            # or site=DC1, role=Server, etc.
+    netbox_validate_ssl: "{{ lookup('env', 'NETBOX_VALIDATE_SSL') | bool}}"
     # Icinga API
     icinga_url: "{{ lookup('env','ICINGA_API_URL') | default('https://localhost:5665', true) }}"
     icinga_user: "{{ lookup('env','ICINGA_API_USER') }}"
@@ -25,7 +24,7 @@
         nb_devices: >-
           {{ lookup('netbox.netbox.nb_lookup', 'devices',
                     api_endpoint=nb_url, token=nb_token,
-                    api_filter=api_filter) }}
+                    api_filter='cf_monitor=true', validate_certs=netbox_validate_ssl) }}
 
     - name: Normalize to a list (mapping -> values, list keeps list)
       set_fact:
@@ -54,6 +53,10 @@
       loop: "{{ nb_plain }}"
       when: item.primary_ip4 is defined and item.primary_ip4
 
+    - name: Show the desired_hosts list
+      debug:
+        var: desired_hosts
+
     # -------- IDPOTENT UPSERT (GET -> POST or PUT) --------
 
     - name: Check if host exists
@@ -74,37 +77,9 @@
         status_code: [200, 404]
       register: host_exists
 
-    - name: Update host (POST) when it exists
-      when:
-        - host_exists is defined
-        - host_exists.results is defined
-      loop: "{{ host_exists.results | selectattr('status','equalto',200) | map(attribute='item') | list }}"
-      loop_control:
-        label: "update {{ item.name }} -> {{ item.address }}"
-      uri:
-        url: "{{ icinga_url }}/v1/objects/hosts/{{ item.name }}"
-        method: POST
-        user: "{{ icinga_user }}"
-        password: "{{ icinga_pass }}"
-        force_basic_auth: true
-        headers:
-          Accept: application/json
-        body_format: json
-        validate_certs: "{{ icinga_verify_ssl }}"
-        return_content: true
-        body:
-          # On update, only send attrs (templates can be problematic to change)
-          attrs:
-            check_command: "hostalive"
-            address: "{{ item.address }}"
-            vars:
-              netbox: "{{ icinga_netbox_flag }}"
-        status_code: [200]
-      register: updates
-      changed_when: >
-        updates.json is defined and
-        ('results' in updates.json) and
-        (updates.json.results | map(attribute='status') | map('lower') | select('search','updated') | list | length) > 0
+    - name: Print the raw contents of the registered variable
+      debug:
+        var: host_exists
 
     - name: Create host (PUT) when it does not exist
       when:
@@ -125,7 +100,6 @@
         validate_certs: "{{ icinga_verify_ssl }}"
         return_content: true
         body:
-          templates: ["generic-host"]   # remove if not present in your setup
           attrs:
             check_command: "hostalive"
             address: "{{ item.address }}"
@@ -138,9 +112,7 @@
         ('results' in creates.json) and
         (creates.json.results | map(attribute='status') | map('lower') | select('search','created') | list | length) > 0
 
-    # -------- PRUNE (unchanged) --------
-
-    - name: Get existing Icinga hosts that came from NetBox (vars.netbox == true)
+    - name: Get existing Icinga hosts that came from NetBox
       uri:
         url: "{{ icinga_url }}/v1/objects/hosts?filter=host.vars.netbox==true"
         method: GET
@@ -167,13 +139,19 @@
       loop_control:
         label: "{{ item }}"
       uri:
-        url: "{{ icinga_url }}/v1/objects/hosts/{{ item }}?cascade=1"
-        method: DELETE
+        url: "{{ icinga_url }}/v1/objects/hosts/{{ item }}"
+        method: POST
         user: "{{ icinga_user }}"
         password: "{{ icinga_pass }}"
         force_basic_auth: true
         headers:
           Accept: application/json
         validate_certs: "{{ icinga_verify_ssl }}"
+        body_format: json
+        body:
+          attrs:
+            vars.disabled: true
+            enable_active_checks: false
+            enable_notifications: false
         return_content: true
         status_code: [200, 404]

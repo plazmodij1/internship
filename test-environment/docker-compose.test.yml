@@ -1,0 +1,42 @@
+include:
+  - ./icinga/docker-compose.yml
+  - path:
+    - ./netbox/docker-compose.yml
+    - ./netbox/docker-compose.override.yml
+services:
+  ansible-automation:
+    build:
+      context: ./ansible/
+      dockerfile: Dockerfile.ansible
+    working_dir: /work
+    env_file:
+      - ./ansible/.env
+    volumes:
+      - ./ansible/synchronization:/work:ro
+    command: ["ansible-playbook", "/work/nb-to-icinga-api.yml"] 
+    networks:
+      - public
+  https-proxy:
+    #make sure proxy boots up after netbox and icinga are done booting up
+    image: nginx:latest
+    ports:
+      - 443:443
+    volumes:
+      - ./nginx/nginx-https.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl-cert:/etc/nginx/ssl:ro
+    networks:
+      public:
+        aliases:
+          - netbox.local
+          - icinga.local
+      
+  nginx-device:
+    container_name: monitor-device
+    image: nginx:latest
+    networks:
+      - public
+
+networks:
+  public:
+    name: public
+    driver: bridge

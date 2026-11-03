@@ -1,0 +1,179 @@
+---
+- name: Sync NetBox devices to Icinga via API (ping-only)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # NetBox
+    nb_url: "{{ lookup('env','NETBOX_API') | default('http://localhost:8000', true) }}"
+    nb_token: "{{ lookup('env','NETBOX_TOKEN') }}"
+    tag_filter: "monitor"              # or site=DC1, role=Server, etc.
+
+    # Icinga API
+    icinga_url: "{{ lookup('env','ICINGA_API_URL') | default('https://localhost:5665', true) }}"
+    icinga_user: "{{ lookup('env','ICINGA_API_USER') }}"
+    icinga_pass: "{{ lookup('env','ICINGA_API_PASS') }}"
+    icinga_verify_ssl: "{{ (lookup('env','ICINGA_VERIFY_SSL') | default('false')) | bool }}"
+    icinga_netbox_flag: true
+
+  tasks:
+    - name: Fetch NetBox devices (tagged=monitor)
+      vars:
+        api_filter: "tag={{ tag_filter }}"
+      set_fact:
+        nb_devices: >-
+          {{ lookup('netbox.netbox.nb_lookup', 'devices',
+                    api_endpoint=nb_url, token=nb_token,
+                    api_filter=api_filter) }}
+
+    - name: Normalize to a list (mapping -> values, list keeps list)
+      set_fact:
+        nb_list: "{{ (nb_devices.values() | list) if (nb_devices is mapping) else (nb_devices | list) }}"
+
+    - name: If items are {key,value}, unwrap to just the values
+      set_fact:
+        nb_plain: "{{ nb_list | map(attribute='value') | list }}"
+      when: nb_list | length > 0 and (nb_list[0] is mapping) and ('value' in nb_list[0])
+
+    - name: Else keep nb_list as-is
+      set_fact:
+        nb_plain: "{{ nb_list }}"
+      when: not (nb_list | length > 0 and (nb_list[0] is mapping) and ('value' in nb_list[0]))
+
+    - name: Start an empty desired_hosts list
+      set_fact:
+        desired_hosts: []
+
+    - name: Build desired_hosts from NetBox devices with primary IPv4
+      set_fact:
+        desired_hosts: "{{ desired_hosts + [ {
+          'name': item.name,
+          'address': (item.primary_ip4.address | split('/') | first)
+          } ] }}"
+      loop: "{{ nb_plain }}"
+      when: item.primary_ip4 is defined and item.primary_ip4
+
+    # -------- IDPOTENT UPSERT (GET -> POST or PUT) --------
+
+    - name: Check if host exists
+      when: desired_hosts | length > 0
+      loop: "{{ desired_hosts }}"
+      loop_control:
+        label: "exists? {{ item.name }}"
+      uri:
+        url: "{{ icinga_url }}/v1/objects/hosts/{{ item.name }}"
+        method: GET
+        user: "{{ icinga_user }}"
+        password: "{{ icinga_pass }}"
+        force_basic_auth: true
+        headers:
+          Accept: application/json
+        validate_certs: "{{ icinga_verify_ssl }}"
+        return_content: true
+        status_code: [200, 404]
+      register: host_exists
+
+    - name: Update host (POST) when it exists
+      when:
+        - host_exists is defined
+        - host_exists.results is defined
+      loop: "{{ host_exists.results | selectattr('status','equalto',200) | map(attribute='item') | list }}"
+      loop_control:
+        label: "update {{ item.name }} -> {{ item.address }}"
+      uri:
+        url: "{{ icinga_url }}/v1/objects/hosts/{{ item.name }}"
+        method: POST
+        user: "{{ icinga_user }}"
+        password: "{{ icinga_pass }}"
+        force_basic_auth: true
+        headers:
+          Accept: application/json
+        body_format: json
+        validate_certs: "{{ icinga_verify_ssl }}"
+        return_content: true
+        body:
+          # On update, only send attrs (templates can be problematic to change)
+          attrs:
+            check_command: "hostalive"
+            address: "{{ item.address }}"
+            vars:
+              netbox: "{{ icinga_netbox_flag }}"
+        status_code: [200]
+      register: updates
+      changed_when: >
+        updates.json is defined and
+        ('results' in updates.json) and
+        (updates.json.results | map(attribute='status') | map('lower') | select('search','updated') | list | length) > 0
+
+    - name: Create host (PUT) when it does not exist
+      when:
+        - host_exists is defined
+        - host_exists.results is defined
+      loop: "{{ host_exists.results | selectattr('status','equalto',404) | map(attribute='item') | list }}"
+      loop_control:
+        label: "create {{ item.name }} -> {{ item.address }}"
+      uri:
+        url: "{{ icinga_url }}/v1/objects/hosts/{{ item.name }}"
+        method: PUT
+        user: "{{ icinga_user }}"
+        password: "{{ icinga_pass }}"
+        force_basic_auth: true
+        headers:
+          Accept: application/json
+        body_format: json
+        validate_certs: "{{ icinga_verify_ssl }}"
+        return_content: true
+        body:
+          templates: ["generic-host"]   # remove if not present in your setup
+          attrs:
+            check_command: "hostalive"
+            address: "{{ item.address }}"
+            vars:
+              netbox: "{{ icinga_netbox_flag }}"
+        status_code: [200]
+      register: creates
+      changed_when: >
+        creates.json is defined and
+        ('results' in creates.json) and
+        (creates.json.results | map(attribute='status') | map('lower') | select('search','created') | list | length) > 0
+
+    # -------- PRUNE (unchanged) --------
+
+    - name: Get existing Icinga hosts that came from NetBox (vars.netbox == true)
+      uri:
+        url: "{{ icinga_url }}/v1/objects/hosts?filter=host.vars.netbox==true"
+        method: GET
+        user: "{{ icinga_user }}"
+        password: "{{ icinga_pass }}"
+        force_basic_auth: true
+        headers:
+          Accept: application/json
+        validate_certs: "{{ icinga_verify_ssl }}"
+        return_content: true
+      register: existing_resp
+
+    - name: Parse existing NetBox-derived host names
+      set_fact:
+        existing_netbox_hosts: "{{ (existing_resp.json.results | default([])) | map(attribute='name') | list }}"
+
+    - name: Compute hosts to delete (in Icinga but not in NetBox anymore)
+      set_fact:
+        to_delete: "{{ existing_netbox_hosts | difference(desired_hosts | map(attribute='name') | list) }}"
+
+    - name: Delete stale NetBox-derived hosts from Icinga
+      when: to_delete | length > 0
+      loop: "{{ to_delete }}"
+      loop_control:
+        label: "{{ item }}"
+      uri:
+        url: "{{ icinga_url }}/v1/objects/hosts/{{ item }}?cascade=1"
+        method: DELETE
+        user: "{{ icinga_user }}"
+        password: "{{ icinga_pass }}"
+        force_basic_auth: true
+        headers:
+          Accept: application/json
+        validate_certs: "{{ icinga_verify_ssl }}"
+        return_content: true
+        status_code: [200, 404]
