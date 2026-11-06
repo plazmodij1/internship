@@ -10,6 +10,9 @@
     site_name: "DC1"
     role_name: "Server"
     mf_name: "Generic"
+    contact_name: "Mr Marko"
+    contact_email: "admin@admin.com"
+    contact_role_name: "Primary role"
     dtype_model: "small"
     devices:
       - { name: "custom-device", ip: "172.18.0.2/24" }
@@ -19,16 +22,16 @@
     - name: Wait for NetBox API to become available
       ansible.builtin.uri:
         url: "{{nb_url}}/api/"
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         status_code: 403
       register: result
-      until: result.status == 403
+      until: result.status is defined and result.status == 403
       retries: 30
       delay: 10
 
     - name: Ensure site exists
       netbox.netbox.netbox_site:
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -38,7 +41,7 @@
 
     - name: Ensure device role exists
       netbox.netbox.netbox_device_role:
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -49,7 +52,7 @@
 
     - name: Ensure manufacturer exists
       netbox.netbox.netbox_manufacturer:
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -59,7 +62,7 @@
 
     - name: Ensure device type exists
       netbox.netbox.netbox_device_type:
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -70,7 +73,7 @@
 
     - name: Ensure custom field 'monitor' exists
       netbox.netbox.netbox_custom_field:
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -80,10 +83,42 @@
           type: boolean
         state: present
 
+    - name: Ensure custom field 'deployed' exists
+      netbox.netbox.netbox_custom_field:
+        validate_certs: "{{ netbox_validate_ssl }}"
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          object_types:
+            - dcim.device
+          name: "deployed"
+          type: boolean
+        state: present
+
+    - name: Ensure contact field exists
+      netbox.netbox.netbox_contact:
+        validate_certs: "{{ netbox_validate_ssl }}"
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          name: "{{ contact_name }}"
+          title: "{{ contact_name }}"
+          email: "{{ contact_email }}"
+        state: present
+
+    - name: Create contact role 
+      netbox.netbox.netbox_contact_role:
+        validate_certs: "{{ netbox_validate_ssl }}"
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          name: "{{ contact_role_name }}"
+        state: present
+
   tasks:
     - name: Create devices
       netbox.netbox.netbox_device:
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -93,13 +128,27 @@
           device_type: "{{ dtype_model }}"
           status: "active"
           custom_fields:
-            {monitor: True}
+            monitor: True
+        state: present
+      loop: "{{ devices }}"
+
+    - name: Assign a contact to a device
+      netbox.netbox.netbox_contact_assignment:
+        validate_certs: "{{ netbox_validate_ssl }}"
+        netbox_url: "{{ nb_url }}"
+        netbox_token: "{{ nb_token }}"
+        data:
+          object_type: device
+          object_name: "{{ item.name }}"
+          contact: "{{ contact_name }}"
+          role: "{{ contact_role_name }}"
+          priority: primary
         state: present
       loop: "{{ devices }}"
 
     - name: Ensure management interface exists
       netbox.netbox.netbox_device_interface:
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -114,7 +163,7 @@
 
     - name: Create and assign IPs to mgmt interface
       netbox.netbox.netbox_ip_address:
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:
@@ -129,7 +178,7 @@
 
     - name: Set primary_ip4 on devices
       netbox.netbox.netbox_device:
-        validate_certs: netbox_validate_ssl
+        validate_certs: "{{ netbox_validate_ssl }}"
         netbox_url: "{{ nb_url }}"
         netbox_token: "{{ nb_token }}"
         data:

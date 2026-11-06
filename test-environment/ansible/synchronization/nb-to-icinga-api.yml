@@ -25,6 +25,21 @@
           {{ lookup('netbox.netbox.nb_lookup', 'devices',
                     api_endpoint=nb_url, token=nb_token,
                     api_filter='cf_monitor=true', validate_certs=netbox_validate_ssl) }}
+    
+    - name: Fetch all contact assignments for all devices
+      set_fact:
+        nb_all_device_contacts: >-
+          {{ lookup('netbox.netbox.nb_lookup', 'contact_assignments',
+                    api_endpoint=nb_url, token=nb_token,
+                    api_filter='object_type=dcim.device', 
+                    validate_certs=netbox_validate_ssl) }}
+    
+    - name: Fetch all device contact assignments
+      ansible.builtin.set_fact:
+        nb_contact_assignments: >-
+          {{ query('netbox.netbox.nb_lookup', 'contact_assignments',
+                  api_endpoint=nb_url, token=nb_token,
+                  api_filter='object_type=dcim.device', validate_certs=netbox_validate_ssl) }}
 
     - name: Normalize to a list (mapping -> values, list keeps list)
       set_fact:
@@ -56,6 +71,20 @@
     - name: Show the desired_hosts list
       debug:
         var: desired_hosts
+
+    - name: Get contact assignments for a specific device
+      ansible.builtin.uri:
+        url: "{{ nb_url }}/api/tenancy/contact-assignments/?object_type=dcim.device&object_id={{ device_id }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ nb_token }}"
+        return_content: yes
+        validate_certs: "{{ netbox_validate_ssl }}"
+      register: device_contacts
+
+    - name: Show the contacts
+      ansible.builtin.debug:
+        var: device_contacts.json.results
 
     # -------- IDPOTENT UPSERT (GET -> POST or PUT) --------
 

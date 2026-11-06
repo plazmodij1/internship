@@ -13,7 +13,7 @@ services:
       - ./ansible/.env
     volumes:
       - ./ansible/netbox-data:/work:ro
-    command: ["ansible-playbook", "/work/seed-netbox.yml", "-vvv"]
+    command: ["ansible-playbook", "/work/seed-netbox.yml"]
     networks:
       - public
   ansible-automation:
