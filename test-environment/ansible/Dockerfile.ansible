@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Instaliraj Ansible i libove za netbox collection
-RUN pip install --no-cache-dir "ansible==9.*" pynetbox requests
+RUN pip install --no-cache-dir "ansible==9.*" Flask pynetbox requests 
 
 # postavi collections u shared path
 # (COPY the requirements file into the image so builds are reproducible)
@@ -20,3 +20,7 @@ WORKDIR /work
 ENV ANSIBLE_STDOUT_CALLBACK=debug \
     ANSIBLE_DEPRECATION_WARNINGS=False \
     ANSIBLE_COLLECTIONS_PATHS=/usr/share/ansible/collections
+
+EXPOSE 5000
+
+CMD ["python", "receiver.py"]

@@ -9,6 +9,7 @@ services:
       context: ./ansible
       dockerfile: Dockerfile.ansible
     working_dir: /work
+    container_name: ansible-seed
     env_file:
       - ./ansible/.env
     volumes:
@@ -21,11 +22,13 @@ services:
       context: ./ansible/
       dockerfile: Dockerfile.ansible
     working_dir: /work
+    container_name: ansible-automation
     env_file:
       - ./ansible/.env
     volumes:
       - ./ansible/synchronization:/work:ro
-    command: ["ansible-playbook", "/work/nb-to-icinga-api.yml"] 
+    command: ["python", "/work/receiver.py"]
+    restart: unless-stopped
     networks:
       - public
   https-proxy:

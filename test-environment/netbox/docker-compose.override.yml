@@ -5,3 +5,7 @@ services:
     networks:
       - default
       - public
+  netbox-worker:
+    networks:
+      - default
+      - public

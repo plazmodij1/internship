@@ -25,66 +25,62 @@
           {{ lookup('netbox.netbox.nb_lookup', 'devices',
                     api_endpoint=nb_url, token=nb_token,
                     api_filter='cf_monitor=true', validate_certs=netbox_validate_ssl) }}
-    
-    - name: Fetch all contact assignments for all devices
-      set_fact:
-        nb_all_device_contacts: >-
-          {{ lookup('netbox.netbox.nb_lookup', 'contact_assignments',
-                    api_endpoint=nb_url, token=nb_token,
-                    api_filter='object_type=dcim.device', 
-                    validate_certs=netbox_validate_ssl) }}
-    
-    - name: Fetch all device contact assignments
-      ansible.builtin.set_fact:
-        nb_contact_assignments: >-
-          {{ query('netbox.netbox.nb_lookup', 'contact_assignments',
-                  api_endpoint=nb_url, token=nb_token,
-                  api_filter='object_type=dcim.device', validate_certs=netbox_validate_ssl) }}
 
-    - name: Normalize to a list (mapping -> values, list keeps list)
-      set_fact:
-        nb_list: "{{ (nb_devices.values() | list) if (nb_devices is mapping) else (nb_devices | list) }}"
-
-    - name: If items are {key,value}, unwrap to just the values
-      set_fact:
-        nb_plain: "{{ nb_list | map(attribute='value') | list }}"
-      when: nb_list | length > 0 and (nb_list[0] is mapping) and ('value' in nb_list[0])
-
-    - name: Else keep nb_list as-is
-      set_fact:
-        nb_plain: "{{ nb_list }}"
-      when: not (nb_list | length > 0 and (nb_list[0] is mapping) and ('value' in nb_list[0]))
-
-    - name: Start an empty desired_hosts list
-      set_fact:
-        desired_hosts: []
-
-    - name: Build desired_hosts from NetBox devices with primary IPv4
-      set_fact:
-        desired_hosts: "{{ desired_hosts + [ {
-          'name': item.name,
-          'address': (item.primary_ip4.address | split('/') | first)
-          } ] }}"
-      loop: "{{ nb_plain }}"
-      when: item.primary_ip4 is defined and item.primary_ip4
-
-    - name: Show the desired_hosts list
-      debug:
-        var: desired_hosts
-
-    - name: Get contact assignments for a specific device
+    - name: Fetch all device contact assignments via REST API
       ansible.builtin.uri:
-        url: "{{ nb_url }}/api/tenancy/contact-assignments/?object_type=dcim.device&object_id={{ device_id }}"
+        url: "{{ nb_url }}/api/tenancy/contact-assignments/?object_type=dcim.device&limit=0"
         method: GET
         headers:
           Authorization: "Token {{ nb_token }}"
-        return_content: yes
+          Accept: "application/json"
         validate_certs: "{{ netbox_validate_ssl }}"
-      register: device_contacts
+        return_content: true
+      register: api_contact_assignments
 
-    - name: Show the contacts
+    - name: Fetch all contacts via REST API
+      ansible.builtin.uri:
+        url: "{{ nb_url }}/api/tenancy/contacts/?limit=0"
+        method: GET
+        headers:
+          Authorization: "Token {{ nb_token }}"
+          Accept: "application/json"
+        validate_certs: "{{ netbox_validate_ssl }}"
+        return_content: true
+      register: api_contacts
+
+    - name: Build minimal host payload for Icinga
+      ansible.builtin.set_fact:
+        desired_hosts: "{{ (desired_hosts | default([])) + [ host_entry ] }}"
+      loop: "{{ [nb_devices] if nb_devices is mapping else nb_devices }}"
+      loop_control:
+        label: "{{ item.value.name }}"
+      vars:
+        host_entry: >-
+          {%- set dev_id = item.value.id | int -%}
+          {%- set matched_contact = {} -%}
+          {%- for assign in api_contact_assignments.json.results -%}
+            {%- set assign_obj_id = (assign.object_id | default(assign.assigned_object_id)) | int -%}
+            {%- set assign_type = assign.object_type | default(assign.content_type) | default('') -%}
+            {%- if assign_obj_id == dev_id and 'device' in (assign_type | string) -%}
+              {%- for c in api_contacts.json.results -%}
+                {%- if (c.id | int) == (assign.contact.id | int) -%}
+                  {%- set _ = matched_contact.update({'name': c.name, 'email': c.email}) -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{
+            {
+              'name': item.value.name,
+              'ipv4': (item.value.primary_ip4.address.split('/')[0] if item.value.primary_ip4 else none),
+              'contact_name': matched_contact.get('name', none),
+              'contact_email': matched_contact.get('email', none)
+            }
+          }}
+
+    - name: Verify Icinga payload
       ansible.builtin.debug:
-        var: device_contacts.json.results
+        var: desired_hosts
 
     # -------- IDPOTENT UPSERT (GET -> POST or PUT) --------
 

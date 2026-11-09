@@ -17,6 +17,7 @@
     devices:
       - { name: "custom-device", ip: "172.18.0.2/24" }
     netbox_validate_ssl: "{{ lookup('env', 'NETBOX_VALIDATE_SSL') | bool}}"
+    payload_url: "{{ lookup('env','LISTENER_URL') }}"
 
   pre_tasks:
     - name: Wait for NetBox API to become available
@@ -186,3 +187,57 @@
           primary_ip4: "{{ item.ip }}"
         state: present
       loop: "{{ devices }}"
+
+    - name: Create the Webhook Destination
+      ansible.builtin.uri:
+        validate_certs: "{{ netbox_validate_ssl }}"
+        url: "{{ nb_url }}/api/extras/webhooks/"
+        method: POST
+        headers:
+          Authorization: "Token {{ nb_token }}"
+          Content-Type: "application/json"
+          Accept: "application/json"
+        body_format: json
+        body:
+          name: "Trigger Icinga Sync"
+          payload_url: "{{ payload_url }}"
+          http_method: "POST"
+          http_content_type: "application/json"
+        status_code: [201, 400]
+
+    - name: Fetch the Webhook ID
+      ansible.builtin.uri:
+        url: "{{ nb_url }}/api/extras/webhooks/?name=Trigger+Icinga+Sync"
+        validate_certs: "{{ netbox_validate_ssl }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ nb_token }}"
+          Accept: "application/json"
+      register: webhook_query
+
+    - name: Create the Event Rule via NetBox REST API
+      ansible.builtin.uri:
+        url: "{{ nb_url }}/api/extras/event-rules/"
+        validate_certs: "{{ netbox_validate_ssl }}"
+        method: POST
+        headers:
+          Authorization: "Token {{ nb_token }}"
+          Content-Type: "application/json"
+          Accept: "application/json"
+        body_format: json
+        body:
+          name: "Icinga Sync Triggers"
+          event_types:
+            - object_created
+            - object_updated
+            - object_deleted
+          object_types:
+            - dcim.device
+            - ipam.ipaddress
+            - tenancy.contact
+            - tenancy.contactassignment
+          action_type: webhook
+          action_object_type: extras.webhook
+          # Extract the ID from the previous task's JSON response
+          action_object_id: "{{ webhook_query.json.results[0].id }}"
+        status_code: [201,]
