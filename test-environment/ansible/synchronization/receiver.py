@@ -21,7 +21,7 @@ def handle_webhook():
 
     if '/dcim/devices/' in path or '/ipam/ip-address/' in path:
         playbook = 'sync_device.yml'
-    elif '/tenancy/contact/' in path or '/tenancy/contact-assignments/' in path:
+    elif '/tenancy/contacts/' in path or '/tenancy/contact-assignments/' in path:
         playbook = 'sync_contact.yml'
     else:
         print(f"Ignored webhook for model: {model}")

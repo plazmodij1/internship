@@ -188,6 +188,37 @@ services:
       - mysql:/var/lib/mysql
       - ./env/mysql/:/docker-entrypoint-initdb.d/:ro
 
+  icinga-bootstrap:
+    image: alpine:latest
+    depends_on:
+      - mysql      # Waits for DB to boot
+      - icingaweb    # Waits for Web UI to create tables
+    environment:
+      MYSQL_ROOT_PASSWORD: ${ICINGADB_ROOT_PASSWORD:?Missing root password}
+      ICINGA_API_USER: ${ICINGA_API_USER:?Missing root password}
+      ICINGA_API_PASS: ${ICINGA_API_PASSWORD:?Missing root password}
+    volumes:
+      - icingaweb:/data
+    command: >
+      /bin/sh -c "
+      echo 'Installing dependencies...' &&
+      apk add --no-cache mariadb-client php-cli &&
+      
+      echo 'Waiting 15s for database to initialize...' &&
+      sleep 15 &&
+      
+      echo 'Generating bcrypt hash for API user...' &&
+      HASH=$$(php -r 'echo password_hash(\"netbox123\", PASSWORD_DEFAULT);') &&
+      
+      echo 'Injecting user into Database...' &&
+      mysql -h mysql --skip-ssl -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" icingaweb -e \"INSERT IGNORE INTO icingaweb_user (name, active, password_hash) VALUES ('netbox_api', 1, '$$HASH');\" &&
+      
+      echo 'Injecting API Roles...' &&
+      mkdir -p /data/etc/icingaweb2 &&
+      grep -q '$${ICINGA_API_USER}' /data/etc/icingaweb2/roles.ini 2>/dev/null || printf '\n[Director API]\nusers = \"$${ICINGA_API_PASS}}\"\npermissions = \"director/api, director/admin\"\n' >> /data/etc/icingaweb2/roles.ini &&
+      
+      echo 'Bootstrap complete. Shutting down setup container.'
+      "
 volumes:
   icinga2:
   icingaweb:

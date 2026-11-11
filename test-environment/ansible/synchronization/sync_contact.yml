@@ -10,60 +10,29 @@
     nb_token: "{{ lookup('env','NETBOX_TOKEN') }}"            # or site=DC1, role=Server, etc.
     netbox_validate_ssl: "{{ lookup('env', 'NETBOX_VALIDATE_SSL') | bool}}"
     # Icinga API
-    icinga_url: "{{ lookup('env','ICINGA_API_URL') | default('https://localhost:5665', true) }}"
-    icinga_user: "{{ lookup('env','ICINGA_API_USER') }}"
-    icinga_pass: "{{ lookup('env','ICINGA_API_PASS') }}"
+    icinga_director_url: "{{ lookup('env','ICINGA_DIRECTOR_API') | default('https://localhost:5665', true) }}"
+    icinga_user: "{{ lookup('env','ICINGA_DIRECTOR_API_USER') }}"
+    icinga_pass: "{{ lookup('env','ICINGA_DIRECTOR_API_PASSWORD') }}"
     icinga_verify_ssl: "{{ (lookup('env','ICINGA_VERIFY_SSL') | default('false')) | bool }}"
     icinga_netbox_flag: true
 
-    event_type: "{{ netbox_payload.event }}"
-    req_path: "{{ netbox_payload.request.path | default('') }}"
+    req_path: "{{ netbox_payload.request.path | default('UNKNOWN') }}"
+    req_method: "{{ netbox_payload.request.method | default('UNKNOWN') }}"
 
   tasks:
     - name: DEBUG - Show exactly what Ansible sees in the payload
       ansible.builtin.debug:
         msg: 
-          - "Event Type is: '{{ event_type }}'"
           - "Request Path is: '{{ req_path }}'"  
+          - "Request Method is: '{{ req_method }}'"  
+          - "Icinga User is: '{{ icinga_user }}'"  
+          - "Icinga Password is: '{{ icinga_pass }}'"  
 
     - name: Handle Contact Profile Changes
       block:
         - name: Create or Update Contact in Icinga
           ansible.builtin.uri:
-            url: "{{ icinga_url }}/objects/users/{{ netbox_payload.data.name | replace(' ', '_') }}"
-            method: "{{ 'PUT' if event_type == 'created' else 'POST' }}"
-            validate_certs: "{{ icinga_verify_ssl }}"
-            user: "{{ icinga_user }}"
-            password: "{{ icinga_pass }}"
-            force_basic_auth: yes
-            headers:
-              Accept: application/json
-            body_format: json
-            body:
-              templates: ["generic-user"]
-              attrs:
-                display_name: "{{ netbox_payload.data.name }}"
-                email: "{{ netbox_payload.data.email | default('') }}"
-          when: event_type in ['created', 'updated']
-          
-        - name: Delete Contact in Icinga
-          ansible.builtin.uri:
-            url: "{{ icinga_url }}/objects/users/{{ netbox_payload.data.name | replace(' ', '_') }}"
-            method: DELETE
-            validate_certs: "{{ icinga_verify_ssl }}"
-            user: "{{ icinga_user }}"
-            password: "{{ icinga_pass }}"
-            force_basic_auth: yes
-          when: event_type == 'deleted'
-          
-      # Block triggers only for core Contact Profile events
-      when: "'/tenancy/contacts/' in req_path"
-
-    - name: Handle Contact Assignment (Host Link) Changes
-      block:
-        - name: Attach Contact to Icinga Host
-          ansible.builtin.uri:
-            url: "{{ icinga_url }}/objects/hosts/{{ netbox_payload.data.object.name }}"
+            url: "{{ icinga_director_url }}/user"
             method: POST
             validate_certs: "{{ icinga_verify_ssl }}"
             user: "{{ icinga_user }}"
@@ -73,10 +42,44 @@
               Accept: application/json
             body_format: json
             body:
-              attrs:
-                "vars.contacts": ["{{ netbox_payload.data.contact.name | replace(' ', '_') }}"]
-          when: event_type in ['created', 'updated']
+              object_type: "object"
+              object_name: "{{ netbox_payload.data.name | replace(' ', '_') }}"
+              imports: ["generic-user"]
+              display_name: "{{ netbox_payload.data.name | replace(' ', '_') }}"
+              email: "{{ netbox_payload.data.email | default('') }}"
+          when: req_method in ['POST', 'PUT', 'PATCH']
           
+        - name: Delete User in Icinga
+          ansible.builtin.uri:
+            url: "{{ icinga_director_url }}/user?name={{ netbox.payload.data.name | replace (' ', '_') }}"
+            method: DELETE
+            validate_certs: "{{ icinga_verify_ssl }}"
+            user: "{{ icinga_user }}"
+            password: "{{ icinga_pass }}"
+            force_basic_auth: yes
+          when: req_method == 'DELETE'
+          
+      # Block triggers only for core Contact Profile events
+      when: "'/tenancy/contacts/' in req_path"
+
+    - name: Handle Contact Assignment (Host Link) Changes
+      block:
+        - name: Attach Contact to Icinga Host
+          ansible.builtin.uri:
+            url: "{{ icinga_director_url }}/host"
+            method: POST
+            validate_certs: "{{ icinga_verify_ssl }}"
+            user: "{{ icinga_user }}"
+            password: "{{ icinga_pass }}"
+            force_basic_auth: yes
+            headers:
+              Accept: application/json
+            body_format: json
+            body:
+              object_name: "{{ netbox.payload.data.object.name }}"
+              vars:
+                contacts: ["{{ netbox_payload.data.contact.name | replace(' ', '_') }}"]
+            when: req_method in ['POST', 'PUT', 'PATCH']
       # Block triggers only for Link Assignment events
       when: "'/tenancy/contact-assignments/' in req_path"
 
